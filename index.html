@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>McIntosh VU Meter</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="vu-meter-panel">
+            <div class="mcintosh-logo">McIntosh</div>
+            
+            <div class="vu-meters">
+                <div class="vu-meter left-channel">
+                    <div class="meter-face">
+                        <canvas id="leftMeter" width="300" height="200"></canvas>
+                        <div class="needle" id="leftNeedle"></div>
+                    </div>
+                    <div class="channel-label">L</div>
+                </div>
+                
+                <div class="vu-meter right-channel">
+                    <div class="meter-face">
+                        <canvas id="rightMeter" width="300" height="200"></canvas>
+                        <div class="needle" id="rightNeedle"></div>
+                    </div>
+                    <div class="channel-label">R</div>
+                </div>
+            </div>
+            
+            <div class="controls">
+                <button id="startBtn" class="control-btn">Start Microphone</button>
+                <button id="stopBtn" class="control-btn" disabled>Stop Audio</button>
+                <input type="file" id="audioFile" accept="audio/*" class="file-input">
+                <label for="audioFile" class="file-label">Load Audio File</label>
+            </div>
+            
+            <div class="settings">
+                <div class="setting">
+                    <label for="sensitivity">Sensitivity:</label>
+                    <input type="range" id="sensitivity" min="0.1" max="3" step="0.1" value="1">
+                </div>
+                <div class="setting">
+                    <label for="ballistics">Response:</label>
+                    <select id="ballistics">
+                        <option value="vu">VU (Musical)</option>
+                        <option value="ppm">PPM (Fast)</option>
+                        <option value="slow">Slow</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <audio id="audioElement" style="display: none;"></audio>
+    <script src="script.js"></script>
+</body>
+</html>
