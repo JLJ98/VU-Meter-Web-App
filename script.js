@@ -5,21 +5,21 @@ class VUMeter {
     this.audioElement = document.getElementById('audioElement');
 
     // UI bits you already have
-    this.leftNeedle  = document.getElementById('leftNeedle');
+    this.leftNeedle = document.getElementById('leftNeedle');
     this.rightNeedle = document.getElementById('rightNeedle');
-    this.leftCanvas  = document.getElementById('leftMeter');
+    this.leftCanvas = document.getElementById('leftMeter');
     this.rightCanvas = document.getElementById('rightMeter');
 
     this.startBtn = document.getElementById('startBtn');
-    this.stopBtn  = document.getElementById('stopBtn');
+    this.stopBtn = document.getElementById('stopBtn');
     this.audioFileInput = document.getElementById('audioFile');
 
     // Meter state (from worklet)
-    this.leftVU  = -60;
+    this.leftVU = -60;
     this.rightVU = -60;
 
     // Needle state (UI damping)
-    this.leftNeedlePos  = -60;
+    this.leftNeedlePos = -60;
     this.rightNeedlePos = -60;
 
     // UI damping factor (visual inertia)
@@ -30,6 +30,7 @@ class VUMeter {
 
     this.initializeCanvases();
     this.bindEvents();
+    this.updateNeedles(); // Set initial needle position
   }
 
   initializeCanvases() {
@@ -41,13 +42,13 @@ class VUMeter {
 
   drawMeterScale(ctx, width, height) {
     // keep your existing scale drawing code here
-    ctx.clearRect(0,0,width,height);
+    ctx.clearRect(0, 0, width, height);
     // ... (omitted for brevity — your original draw code is fine)
   }
 
   bindEvents() {
     this.startBtn.addEventListener('click', () => this.startMic());
-    this.stopBtn.addEventListener('click',  () => this.stopAudio());
+    this.stopBtn.addEventListener('click', () => this.stopAudio());
     this.audioFileInput.addEventListener('change', (e) => this.loadFile(e));
   }
 
@@ -67,7 +68,7 @@ class VUMeter {
     try {
       await this.ensureAudioContext();
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation:false, noiseSuppression:false, autoGainControl:false }
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
       });
       const mic = this.audioContext.createMediaStreamSource(stream);
       this.buildGraph(mic);
@@ -81,25 +82,26 @@ class VUMeter {
     const file = event.target.files[0];
     if (!file) return;
 
-    // Stop any existing audio first
-    if (this.isRunning) {
-      this.stopAudio();
+    await this.ensureAudioContext();
+
+    // Stop and pause existing audio
+    if (this.audioElement && !this.audioElement.paused) {
+      this.audioElement.pause();
     }
 
-    await this.ensureAudioContext();
     const url = URL.createObjectURL(file);
     this.audioElement.src = url;
-    
+
     try {
       await this.audioElement.play();
-      
+
       // Only create source once per audio element
       if (!this.mediaElementSource) {
         this.mediaElementSource = this.audioContext.createMediaElementSource(this.audioElement);
         // Connect to speakers so you can hear it
         this.mediaElementSource.connect(this.audioContext.destination);
       }
-      
+
       this.buildGraph(this.mediaElementSource);
     } catch (e) {
       console.error('Audio playback failed:', e);
@@ -108,13 +110,21 @@ class VUMeter {
   }
 
   buildGraph(sourceNode) {
+    // Disconnect old meter node if exists
+    if (this.meterNode) {
+      try {
+        this.meterNode.disconnect();
+        this.meterNode.port.close();
+      } catch (e) { }
+    }
+
     // Create the meter worklet node (no outputs)
     this.meterNode = new AudioWorkletNode(this.audioContext, 'vu-meter-processor', {
       numberOfInputs: 1,
       numberOfOutputs: 0,
       outputChannelCount: [],
       processorOptions: {
-        calibration: -18,  // 0 VU at -18 dBFS
+        calibration: -12,  // 0 VU at -12 dBFS (more sensitive)
         tau: 0.300         // 300 ms
       }
     });
@@ -125,33 +135,36 @@ class VUMeter {
     // receive continuous, audio-rate-integrated VU values
     this.meterNode.port.onmessage = (e) => {
       const { l, r } = e.data;
-      this.leftVU  = l;
+      this.leftVU = l;
       this.rightVU = r;
     };
 
-    // start UI loop
-    this.isRunning = true;
+    // start UI loop if not already running
+    if (!this.isRunning) {
+      this.isRunning = true;
+      this.animate();
+    }
+
     this.startBtn.disabled = true;
     this.stopBtn.disabled = false;
-    this.animate();
   }
 
   stopAudio() {
     this.isRunning = false;
     if (this.animationId) cancelAnimationFrame(this.animationId);
-    
+
     // Stop audio element if playing
     if (this.audioElement && !this.audioElement.paused) {
       this.audioElement.pause();
       this.audioElement.currentTime = 0;
     }
-    
+
     // Disconnect meter node
     if (this.meterNode) {
       this.meterNode.disconnect();
       this.meterNode = null;
     }
-    
+
     this.startBtn.disabled = false;
     this.stopBtn.disabled = true;
 
@@ -165,11 +178,11 @@ class VUMeter {
     if (!this.isRunning) return;
 
     // Visual inertia only (audio-rate integration already done in worklet)
-    this.leftNeedlePos  += (this.leftVU  - this.leftNeedlePos)  * this.uiDamp;
+    this.leftNeedlePos += (this.leftVU - this.leftNeedlePos) * this.uiDamp;
     this.rightNeedlePos += (this.rightVU - this.rightNeedlePos) * this.uiDamp;
 
     // Clamp to meter range
-    this.leftNeedlePos  = Math.max(-60, Math.min(+6, this.leftNeedlePos));
+    this.leftNeedlePos = Math.max(-60, Math.min(+6, this.leftNeedlePos));
     this.rightNeedlePos = Math.max(-60, Math.min(+6, this.rightNeedlePos));
 
     this.updateNeedles();
@@ -177,15 +190,18 @@ class VUMeter {
   }
 
   updateNeedles() {
-    this.leftNeedle.style.transform  = `translateX(-50%) rotate(${this.dbToAngle(this.leftNeedlePos)}deg)`;
-    this.rightNeedle.style.transform = `translateX(-50%) rotate(${this.dbToAngle(this.rightNeedlePos)}deg)`;
+    const leftAngle = this.dbToAngle(this.leftNeedlePos);
+    const rightAngle = this.dbToAngle(this.rightNeedlePos);
+    this.leftNeedle.style.transform = `translateX(-50%) rotate(${leftAngle}deg)`;
+    this.rightNeedle.style.transform = `translateX(-50%) rotate(${rightAngle}deg)`;
   }
 
   dbToAngle(db) {
-    // map -20..+3 VU to -90..+90 deg (you can keep your previous mapping if preferred)
+    // map -20..+3 VU to -45..+45 deg (stays within semicircle)
+    // 0 VU (normal level) will be at ~0 degrees (pointing up)
     const minDb = -20, maxDb = +3;
-    const minA  = -90, maxA  = +90;
-    const t = (db - minDb) / (maxDb - minDb);
+    const minA = -45, maxA = +45;
+    const t = Math.max(0, Math.min(1, (db - minDb) / (maxDb - minDb)));
     return minA + t * (maxA - minA);
   }
 }
